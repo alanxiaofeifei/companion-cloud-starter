@@ -1,0 +1,24 @@
+# ILLUSTRATION ONLY. Default image serves health checks and rejects operational work.
+# Replace placeholders locally. No secret values, bot identities or live projects here.
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: companion-smoke
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: '1'
+    spec:
+      serviceAccountName: REPLACE_SERVICE_ACCOUNT
+      containerConcurrency: 1
+      timeoutSeconds: 60
+      containers:
+        - image: REPLACE_REGION-docker.pkg.dev/REPLACE_PROJECT/REPLACE_REPOSITORY/companion@sha256:REPLACE_DIGEST
+          ports:
+            - containerPort: 8080
+          resources:
+            limits:
+              cpu: '1'
+              memory: 256Mi
+# Public ingress IAM, worker IAM, Secret Manager and queue wiring intentionally absent.

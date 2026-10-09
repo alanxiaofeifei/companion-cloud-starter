@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+*.sqlite*
+*.db*
+*.pem
+*.key
+credentials*
+auth.json
+runtime/
+private/
+backups/
+.DS_Store

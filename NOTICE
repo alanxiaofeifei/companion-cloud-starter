@@ -1,0 +1,3 @@
+Original reference implementation, Copyright (c) 2026 Alan Zhu. MIT licensed.
+No third-party runtime source is included. Design inspiration is not a claim of upstream code inclusion or endorsement.
+If future releases copy substantial upstream Hermes or other code, preserve its applicable copyright and complete license text, and record the exact upstream revision and files used.
