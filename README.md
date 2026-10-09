@@ -53,4 +53,4 @@ Read [architecture](docs/ARCHITECTURE.md), [runbook](docs/RUNBOOK.md), [lessons]
 
 ## Publication and licensing
 
-This directory was written fresh; no private repository history, profiles, conversations, knowledge packs, tokens or upstream runtime implementation are included. All test identities are synthetic. This is a local publication candidate, not a published release. See [NOTICE](NOTICE). The original code is MIT licensed.
+This directory was written fresh; no private repository history, profiles, conversations, knowledge packs, tokens or upstream runtime implementation are included. All test identities are synthetic. This is a [published experimental reference](https://github.com/alanxiaofeifei/companion-cloud-starter), not a production-ready assistant; no hosted service is supplied. Verification covers 34 local tests, JavaScript syntax checks, synthetic loopback HTTP checks and fresh-process filesystem restoration. Cloud services, real Telegram delivery and Hermes integration remain unverified. See [NOTICE](NOTICE). The original code is MIT licensed.
