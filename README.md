@@ -10,7 +10,7 @@
 
 ## 五分钟离线运行
 
-需要 Node 22 或更新版本，不安装依赖、不需要真实 token。此次实际运行版本为 Node 24.19.0；Node 22 和远端 CI 为 NOT RUN。
+需要 Node 22 或更新版本，不安装依赖、不需要真实 token。本地验证使用 Node 24.19.0；代码提交 `67d18a2b0b577970a1cc9d07ea404157f66e01d0` 已通过 [Node 22/24 的 CI 验证](https://github.com/alanxiaofeifei/companion-cloud-starter/actions/runs/38040415468)。
 
 ```sh
 npm test

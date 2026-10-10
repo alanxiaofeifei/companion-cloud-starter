@@ -8,7 +8,7 @@
 
 **合成例子。** README 的固定 update 1 返回 `Synthetic reply: Hello`。重复输入只保留一次本地送达；同 ID 换成另一正文返回 409。恢复测试显式保存 PREPARED，在新 Node 进程里发送该 reply，provider 调用数为零；另一个测试让 provider 等待超时，再提交同会话下一条消息，下一条保持 PENDING。
 
-**验收与限制。** `npm run check` 无依赖安装、离线运行全部测试和 src/test 语法检查。此次实际执行 Node 24.19.0；Node 22、远端 CI、OS kill、云重启未运行。demo 状态易失，FileSnapshots 不自动接到每次 transition。测试细节可从 `test/http.test.mjs` 与 `test/recovery.test.mjs` 重现。
+**验收与限制。** `npm run check` 无依赖安装、离线运行全部测试和 src/test 语法检查。本地验证使用 Node 24.19.0；代码提交 `67d18a2b0b577970a1cc9d07ea404157f66e01d0` 已通过 [Node 22/24 的 CI 验证](https://github.com/alanxiaofeifei/companion-cloud-starter/actions/runs/38040415468)。OS kill、云重启未运行。demo 状态易失，FileSnapshots 不自动接到每次 transition。测试细节可从 `test/http.test.mjs` 与 `test/recovery.test.mjs` 重现。
 
 ## 2. 公开核心的来源与数据边界
 
@@ -122,7 +122,7 @@ Cloud Run service 504 不终止容器；Cloud Tasks dispatch deadline 不证明 
 
 **验收。** 对同 ID 重复与并发 drain、冲突 payload、scope、三个授权边界、方法/路径/secret、分块大小/JSON/中止/超时、provider/sender 未知结果、PREPARED/SENT 新进程、容量与损坏分别断言。新 Node 子进程只返回状态/调用计数/revision 匹配布尔摘要。恢复文件使用测试专用临时目录，finally 清理，不纳入 source upload。
 
-**限制。** 本批没有 emulator、真实云、真实用户体验、模型正确性或 native Hermes 验收。旧提交的 CI 不能证明本次改动，Node 22 未运行必须保留 NOT RUN。
+**限制。** 本批没有 emulator、真实云、真实用户体验、模型正确性或 native Hermes 验收。旧提交的 CI 不能为新代码背书；代码提交 `67d18a2b0b577970a1cc9d07ea404157f66e01d0` 已通过 [Node 22/24 的 CI 验证](https://github.com/alanxiaofeifei/companion-cloud-starter/actions/runs/38040415468)，该结果仅证明该固定提交的测试与语法检查。
 
 ## 10. 运维、回滚和后续边界
 

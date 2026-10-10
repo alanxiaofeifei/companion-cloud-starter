@@ -2,7 +2,7 @@
 
 ## 离线验收
 
-不运行 npm install；项目仅用 Node 标准库。运行 `npm run check` 会执行全部测试，再对 src/test 所有 `.mjs` 做 `node --check`。本次 Node 24.19.0 的本地结果见交付摘要；Node 22 和此次远端 CI 未运行。
+不运行 npm install；项目仅用 Node 标准库。运行 `npm run check` 会执行全部测试，再对 src/test 所有 `.mjs` 做 `node --check`。本地验证使用 Node 24.19.0；代码提交 `67d18a2b0b577970a1cc9d07ea404157f66e01d0` 已通过 [Node 22/24 的 CI 验证](https://github.com/alanxiaofeifei/companion-cloud-starter/actions/runs/38040415468)。
 
 | 证据等级 | 此目录的证据 |
 | --- | --- |
