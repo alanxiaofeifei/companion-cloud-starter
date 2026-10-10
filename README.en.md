@@ -2,6 +2,8 @@
 
 [中文版](README.md) | [English](README.en.md)
 
+A foundation for AI bots tailored to specific roles, business workflows, and use cases. The goal is to reuse its message-handling and reliability code for customer service, service desk, help desk, or conversational companionship bots. These use-case-specific capabilities still need to be integrated and developed.
+
 Want an AI chat assistant that can receive messages anytime, without buying a dedicated Mac mini or keeping your personal laptop on around the clock? This project explores an on-demand cloud path, with a lightweight starter distilled from work on cloud-hosted chatbots.
 
 - **What you want to build:** An AI chat assistant that can receive messages 24/7, start processing on demand, and scale its running instances to zero when idle to reduce resource use.
