@@ -34,19 +34,22 @@ export function route(update, policy) {
     }, text: m.text
   };
 }
+/** Cheap transport gate: call before reading or parsing any body. */
+export function ingressGate({ method, path, headers }, secret) {
+  if (method !== 'POST' || path !== '/telegram/webhook')
+    return { status: 404 };
+  if (!secretMatches(headers?.['x-telegram-bot-api-secret-token'], secret))
+    return { status: 401 };
+  return null;
+}
 /** Admit before enqueue. Duplicates re-enqueue the same deterministic task ID for repair. */
 export function createIngress({ secret, policy, inbox, queue }) {
   if (typeof secret !== 'string' || secret.length < 32)
     throw new Error('Webhook secret must contain at least 32 characters');
   return async ({ method, path, headers, body }) => {
-    if (method !== 'POST' || path !== '/telegram/webhook')
-      return {
-        status: 404
-      };
-    if (!secretMatches(headers?.['x-telegram-bot-api-secret-token'], secret))
-      return {
-        status: 401
-      };
+    const rejected = ingressGate({ method, path, headers }, secret);
+    if (rejected)
+      return rejected;
     if (!Buffer.isBuffer(body) || body.byteLength > 65536)
       return {
         status: 413

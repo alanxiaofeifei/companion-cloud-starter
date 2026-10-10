@@ -1,78 +1,67 @@
-import { createIngress, route } from './ingress.mjs';
+import { createIngress } from './ingress.mjs';
 import { MemoryInbox } from './storage.mjs';
-/** Synthetic deterministic provider. No external model or tool access. */
+import { MemoryState, SessionLedger } from './state.mjs';
+import { processSession } from './worker.mjs';
+/** Synthetic deterministic provider. No external model or tools; preserves memory. */
 export class SyntheticProvider {
-  async runTurn(turn) {
-    return {
-      text: `Synthetic reply: ${turn.text}`, checkpoint: {
-        version: 'demo', durable: false
-      }
-    };
+  async runTurn(turn, { memoryMarkdown }) {
+    return { text: `Synthetic reply: ${turn.text}`.slice(0, 4096), memoryMarkdown };
   }
 }
-/** In-process only: deliberately not a distributed lease/queue/durable worker. */
-export function createDemo({ secret, policy, provider = new SyntheticProvider() }) {
-  const inbox = new MemoryInbox(), pending = new Map(), complete = new Set(), outputs = [];
+export function currentlyAuthorized(principal, policy) {
+  if (principal.tenantId !== policy.tenantId)
+    return false;
+  if (principal.role === 'private-member')
+    return principal.chatId === principal.userId && policy.privateUsers.includes(principal.userId);
+  return principal.role === 'group-member' && !!policy.groups[principal.chatId]?.includes(principal.userId);
+}
+/** In-process queue and sender; the SAME fenced ledger/worker used by recovery tests. */
+export function createDemo({ secret, policy, provider = new SyntheticProvider(), timeoutMs = 5000 }) {
+  const inbox = new MemoryInbox(), store = new MemoryState(), ledger = new SessionLedger(store);
+  const sessions = new Set(), outputs = [];
+  let rescanNeeded = false;
   const queue = {
-    async enqueue(id, value) {
-      if (!complete.has(id))
-        pending.set(id, value);
-    }
-  };
-  const ingress = createIngress({
-    secret, policy, inbox, queue
-  });
-  let draining = null;
-  async function processPending() {
-    for (const [id] of pending) {
+    async enqueue(id) {
       const turn = await inbox.get(id);
       if (!turn)
-        throw new Error('Missing admitted turn');
-      // Re-evaluate current policy at execution, including revoked membership.
-      const p = turn.principal;
-      const reconstructed = {
-        update_id: Number(turn.updateId), message: {
-          message_id: Number(turn.messageId),
-          from: {
-            id: Number(p.userId), is_bot: false
-          }, chat: {
-            id: Number(p.chatId), type: p.role === 'private-member' ? 'private' : 'supergroup'
-          },
-          ...(p.topicId === null ? {} : {
-            message_thread_id: Number(p.topicId)
-          }), text: turn.text
-        }
-      };
-      if (!route(reconstructed, policy)) {
-        pending.delete(id);
-        complete.add(id);
-        continue;
-      }
-      const request = structuredClone({
-        ...turn, turnId: id
-      });
-      Object.freeze(request.principal);
-      Object.freeze(request);
-      const result = await provider.runTurn(request, {
-        signal: AbortSignal.timeout(5000), deadlineMs: Date.now() + 5000
-      });
-      if (typeof result?.text !== 'string' || result.text.length > 4096)
-        throw new Error('Invalid synthetic response');
-      // The only delivery target is a local array. Never calls Telegram.
-      outputs.push({
-        turnId: id, sessionKey: turn.sessionKey, chatId: p.chatId, text: result.text
-      });
-      pending.delete(id);
-      complete.add(id);
+        throw Error('Missing admitted turn');
+      await ledger.admit({ ...turn, turnId: id });
+      sessions.add(turn.sessionKey);
+      rescanNeeded = true;
     }
+  };
+  const ingress = createIngress({ secret, policy, inbox, queue });
+  const sender = {
+    async send({ turnId, principal, text }) {
+      const turn = await inbox.get(turnId);
+      outputs.push({ turnId, sessionKey: turn.sessionKey, chatId: principal.chatId, text });
+      return { kind: 'sent' };
+    }
+  };
+  let draining = null;
+  async function processPending() {
+    do {
+      // Enqueue during an await retains a wake even for an already visited session.
+      // Only enqueue requests another pass; idle/quarantine never schedules itself.
+      rescanNeeded = false;
+      for (const sessionKey of sessions) {
+        // At most 100 turns per session; stop at idle, contention or quarantine.
+        for (let i = 0; i < 100; i++) {
+          const { status } = await processSession({
+            ledger, sessionKey, owner: 'synthetic-demo', provider, sender, timeoutMs,
+            authorize: principal => currentlyAuthorized(principal, policy)
+          });
+          if (['IDLE', 'BUSY', 'QUARANTINED'].includes(status))
+            break;
+        }
+      }
+    } while (rescanNeeded);
     return structuredClone(outputs);
   }
   return {
-    ingress, outputs: () => structuredClone(outputs), drain() {
-      if (!draining)
-        draining = processPending().finally(() => {
-          draining = null;
-        });
+    ingress, ledger, store, outputs: () => structuredClone(outputs),
+    drain() {
+      draining ??= processPending().finally(() => { draining = null; });
       return draining;
     }
   };

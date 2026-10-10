@@ -1,4 +1,4 @@
-import { LostLease } from './state.mjs';
+import { LostLease, CapacityExceeded } from './state.mjs';
 /** Crash hooks run outside provider catches to simulate process loss exactly. */
 export async function processSession({ ledger, sessionKey, owner, provider, sender, authorize, timeoutMs = 10000, crash = () => {
 } }) {
@@ -76,9 +76,19 @@ export async function processSession({ ledger, sessionKey, owner, provider, send
         };
       }
       crash('after_provider_before_checkpoint');
-      r = await ledger.transition(lease, id, 'RUNNING', 'PREPARED', {
-        reply: result.text, memoryMarkdown: result.memoryMarkdown
-      });
+      try {
+        r = await ledger.transition(lease, id, 'RUNNING', 'PREPARED', {
+          reply: result.text, memoryMarkdown: result.memoryMarkdown
+        });
+      }
+      catch (error) {
+        if (!(error instanceof CapacityExceeded))
+          throw error;
+        await ledger.transition(lease, id, 'RUNNING', 'QUARANTINED', {
+          reason: 'checkpoint_capacity_exceeded'
+        });
+        return { status: 'QUARANTINED' };
+      }
       crash('after_checkpoint');
     }
     // Check current authorization again immediately before starting delivery.

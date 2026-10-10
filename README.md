@@ -1,56 +1,54 @@
-# Companion Cloud Template
+# Companion Cloud Starter
 
-A small, original reference scaffold for a Telegram companion's **trusted ingress and storage boundary**. It is deliberately not a ready-to-deploy assistant. The default HTTP server exposes a smoke health endpoint and refuses all operational requests.
+一个标准库实现的实验性参考核心：可信接入、scope 隔离、fenced 会话 ledger、回复与 Markdown 检查点、幂等终态和未知结果隔离。可离线运行合成 HTTP 示例；不是已接通的云端助手。
 
-## Included
+| 模式 | 实际行为 |
+| --- | --- |
+| 默认 smoke | `npm start`；健康检查 200，所有业务请求 503 |
+| synthetic loopback | `npm run demo`；可信 ingress → 内存 inbox/queue → SessionLedger/processSession → 合成 provider → 本地数组 |
+| 真实集成 | 未实现/未验收：真实模型、Telegram、IAM、queue、OAuth、Secret Manager、云持久化、Hermes |
 
-- Secret-authenticated Telegram ingress with exact sender/chat allowlists; payload names and claimed roles confer no authority.
-- Tenant, chat and topic isolation; private chat IDs must match the authenticated sender.
-- Atomic inbox interface, deterministic queue identities and retryable admission after queue failure.
-- Injectable Firestore inbox/session transaction and GCS immutable snapshot adapters.
-- Fenced session-worker state machine with checkpoint reuse, durable-store port, terminal deduplication and quarantine of unknown effects.
-- Atomic local filesystem snapshots tested across a fresh Node process, carrying Markdown memory and ledger state together.
-- Dependency-free synthetic tests covering trust, isolation, duplicates, retry and blob integrity.
-- A deliberately throwing Hermes runtime placeholder and a proposed cancellation/checkpoint contract.
-- Architecture, operating instructions and extraction lessons; placeholder-only Cloud Run configuration.
+## 五分钟离线运行
 
-## Local verification
-
-Requires Node.js 22 or newer. No credentials, network, SDK installation or model subscription are needed.
+需要 Node 22 或更新版本，不安装依赖、不需要真实 token。此次实际运行版本为 Node 24.19.0；Node 22 和远端 CI 为 NOT RUN。
 
 ```sh
 npm test
 npm run check
-npm start
-# In another terminal: curl http://127.0.0.1:8080/healthz
-# Any operational endpoint returns 503, by design.
+npm run demo
 ```
 
-## Runnable local synthetic flow
+在另一终端只访问本机：
 
 ```sh
-npm run demo
-# In another terminal:
 curl -s http://127.0.0.1:8081/telegram/webhook \
   -H 'Content-Type: application/json' \
   -H 'X-Telegram-Bot-Api-Secret-Token: synthetic-webhook-secret-for-testing' \
   -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":101,"type":"private"},"from":{"id":101,"is_bot":false},"text":"Hello"}}'
 ```
 
-This runs webhook -> in-memory inbox -> local queue -> worker -> deterministic synthetic provider -> local response array. It listens only on loopback and cannot send Telegram messages. Its fixed secret and IDs are test fixtures, never real configuration. All state disappears at process exit. Cancellation signals are passed to the provider but this demo does not enforce hard execution deadlines; this simple demo omits the more complete ledger available separately in `src/state.mjs` and `src/worker.mjs`; neither example sends real messages.
+响应含 `accepted:true`、`duplicate:false` 和 `responses`，其中合成回复为 `Synthetic reply: Hello`。重复相同请求得到 `duplicate:true`；数组仍只有一条送达。同 ID 改正文返回 409。`responses` 是进程内累计的合成数组，不是 Telegram 送达凭证；`accepted` 只表示 admission/enqueue 成功。撤权或隔离可能已接收但没有回复。
 
-The tests do not contact Telegram, Google Cloud or model providers. No live durability, IAM, model correctness, delivery, failover or Hermes functionality is certified.
+demo 仅监听 `127.0.0.1`，无模型或工具调用，sender 只写数组。它使用恢复测试中的同一套 worker，不另设简化重试语义。状态在退出时丢失；文件快照是显式调用的独立单写者工具，不自动为 demo 持久化。
 
-## Adapting this scaffold
+```sh
+node --test test/http.test.mjs
+node --test test/recovery.test.mjs
+node --test test/privacy.test.mjs test/release.test.mjs
+```
 
-Supply a validated operator policy and a long random webhook secret to `createIngress`. Never put either into source control. The HTTP transport must enforce the 64 KiB limit while streaming, authenticate before parsing, and never log bodies or secret headers. `src/server.mjs` is only a smoke target, not this transport.
+恢复测试展示 PREPARED 新 Node 进程恢复不重跑 provider、SENT 新进程恢复不重发、RUNNING/SENDING 中断与忽略 abort 的超时隔离，以及容量、scope、快照损坏。异常 crash hook 与新进程恢复分别报告，不冒充 OS kill 或云重启。
 
-The `queue.enqueue(id, {inboxId})` port must durably create a task with that stable ID; a confirmed already-existing task may count as success. Other errors must throw. A worker must reread the authoritative inbox and reauthorize membership before executing. The reusable state machine in `src/worker.mjs` covers the next execution stages; see [recovery](docs/RECOVERY.md). This repository intentionally has no fake-success queue or fake-success model.
+## 实际契约与边界
 
-To use Google Cloud, select and pin the official `@google-cloud/firestore` and `@google-cloud/storage` SDK versions, install and audit them, and inject their clients. These dependencies are not installed, locked or integration-tested here. Use workload identity, never committed service-account keys. The GCS upload adapter currently returns a digest only: restoration manifests require verified upload generation metadata before being usable.
+`runTurn(turn, {signal, deadlineMs, memoryMarkdown})` 返回 `{text, memoryMarkdown}`。provider 提议回复和记忆；ledger 在同一 revision 原子提交后进入 PREPARED。provider 的 `durable:true` 没有任何证明力。`MemoryState` 只保证进程内原子性；耐久承诺必须来自真实持久事务适配器的提交。
 
-Read [architecture](docs/ARCHITECTURE.md), [runbook](docs/RUNBOOK.md), [lessons](docs/LESSONS.md) and [Chinese engineering notes](docs/ENGINEERING_NOTES.zh-CN.md).
+HTTP 在 body 读取前校验方法/路径/secret，流式上限 64 KiB，处理坏 JSON、超限、中止和 body deadline。ledger 最多保留 100 turns；JSON UTF-8 硬上限 850000 bytes，admission/检查点预算 848976 bytes，预留状态管理空间。拒绝增长，不删除去重记录，也没有归档系统。
 
-## Publication and licensing
+Firestore/GCS 是注入式端口，现有测试只使用 SDK fake，未安装真实 SDK。GCS create 只返回摘要，尚不能建立可信恢复 pointer。`HermesRuntime` 始终明确抛出未实现错误；没有分发其代码、schema、fixture 或指导文本。
 
-This directory was written fresh; no private repository history, profiles, conversations, knowledge packs, tokens or upstream runtime implementation are included. All test identities are synthetic. This is a [published experimental reference](https://github.com/alanxiaofeifei/companion-cloud-starter), not a production-ready assistant; no hosted service is supplied. Verification covers 34 local tests, JavaScript syntax checks, synthetic loopback HTTP checks and fresh-process filesystem restoration. Cloud services, real Telegram delivery and Hermes integration remain unverified. See [NOTICE](NOTICE). The original code is MIT licensed.
+阅读 [架构](docs/ARCHITECTURE.md)、[恢复](docs/RECOVERY.md)、[运维](docs/RUNBOOK.md)、[工程取舍](docs/LESSONS.md) 和 [详细中文工程笔记](docs/ENGINEERING_NOTES.zh-CN.md)。一般云角色、六项已核对官方行为及剩余待核验项见运维文档；真实云/SDK/IAM 运行验收仍为 NOT RUN。
+
+## 来源与许可
+
+这是 [公开实验参考仓库](https://github.com/alanxiaofeifei/companion-cloud-starter) 的小型原创实现。公开例子全部合成，不包含私人历史、身份资料、真实云配置或运行记录。保留 [LICENSE](LICENSE) 与 [NOTICE](NOTICE) 的公开维护者合法归属，MIT 许可；没有新增上游材料或官方集成背书。

@@ -9,7 +9,7 @@
   "scripts": {
     "test": "node --test",
     "start": "node src/server.mjs",
-    "check": "node --test && node --check src/server.mjs",
+    "check": "node --test && node --input-type=module -e \"import { readdirSync } from 'node:fs'; import { execFileSync } from 'node:child_process'; for (const dir of ['src','test']) for (const file of readdirSync(dir).filter(f => f.endsWith('.mjs'))) execFileSync(process.execPath, ['--check', dir + '/' + file]);\"",
     "demo": "node src/demo-server.mjs"
   },
   "license": "MIT"

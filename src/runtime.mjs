@@ -1,14 +1,13 @@
-/** Runtime port (proposed, NOT an implemented bridge):
-* runTurn({turnId, sessionKey, principal, text, updateId}, {signal, deadlineMs})
-*   -> Promise<{text, checkpoint:{version, durable:true}}>
-* turnId is a stable idempotency key, not proof that a provider is idempotent.
-* principal/session are immutable server-verified inputs, never model output.
-* The worker must reauthorize on dequeue, serialize each session, enforce fenced
-* leases and deadline cancellation, and durably acknowledge memory/effects before
-* success. A runtime's assertion durable:true must be verified by its adapter.
-* A generic fenced worker is provided separately; native Hermes persistence and
-* a real outbound sender are not implemented.
-*/
+/** Runtime port used by processSession (Hermes bridge remains unimplemented):
+ * runTurn(turn, {signal, deadlineMs, memoryMarkdown})
+ *   -> Promise<{text: string, memoryMarkdown: string}>
+ * text is <=4096 JS code units; Markdown is <=65536 UTF-8 bytes.
+ * turnId is stable; principal is server-verified and frozen. The supplied memory
+ * belongs only to sessionKey. Provider results are proposals, never durable proof.
+ * The ledger atomically commits reply + memory at one revision before PREPARED.
+ * MemoryState is volatile; only a durable transact adapter can promise durability.
+ * AbortSignal is cooperative: timeout/error may leave effects and is quarantined.
+ */
 export class HermesRuntime {
   async runTurn() {
     throw new Error('Hermes integration is not implemented or validated');

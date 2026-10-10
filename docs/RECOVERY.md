@@ -1,46 +1,51 @@
-# Fenced worker and recovery examples
+# 会话恢复、幂等与未知结果
 
-## Implemented reusable core
+## 状态与 fencing
 
-`src/state.mjs` supplies a `SessionLedger` over the atomic `transact(sessionKey, callback)` port. `MemoryState` serializes transactions locally; `FirestoreState` maps one session record to an official-client transaction. The latter is exercised through an SDK fake, not a cloud database or emulator.
+```text
+PENDING → RUNNING → PREPARED → SENDING → SENT
+PENDING / PREPARED → CANCELLED
+RUNNING / SENDING → QUARANTINED
+SENDING → FAILED（只有明确未送达）
+```
 
-`src/worker.mjs` provides the actual provider/checkpoint/delivery state machine. Supply a runtime `provider.runTurn`, a `sender.send` and authoritative `authorize` function. Caller admission must originate from the trusted ingress; the ledger is not a public authentication API.
+每次读/写 worker 状态在事务内检查 lease owner、epoch、expiresAt。owner 表示持有者，epoch 递增隔离旧代，expiry 限制租约时间。acquire 只允许一个未过期持有者；renew 可用，当前 worker 不自动续租。lease 预算为两段调用 deadline 外加余量，不能把它当成对 authorize/store 延迟的硬保证；延迟导致失租时旧提交被拒绝。
 
-The state transitions are:
+隔离 turn 挡住同 session 的后续上下文；其他 session 不受其状态阻挡。SENT、FAILED、CANCELLED 为终态，保留记录去重；不提供自动清隔离、force resend 或删 tombstone 的 API。
 
-- PENDING -> RUNNING -> PREPARED -> SENDING -> SENT
-- PENDING/PREPARED -> CANCELLED when membership is revoked
-- RUNNING/SENDING -> QUARANTINED after uncertainty or interrupted work
-- SENDING -> FAILED only after the sender positively reports a definite failure
+## 故障矩阵
 
-Every state transition checks the session lease's owner, monotonically increasing epoch and expiry inside the transaction callback. Only one current holder can write. Lease renewal is available; the sample worker instead bounds provider and sender phases within its lease budget. Timeout races return promptly and send an abort signal, but remote cancellation is cooperative, so timeout outcomes remain unknown.
+| 边界 | 再次执行 | 证据 |
+| --- | --- | --- |
+| 入队后撤权，仍 PENDING | CANCELLED；不调用 provider | LOCAL UNIT / loopback |
+| provider 返回后撤权 | 已提交 PREPARED 记忆，CANCELLED；不发送 | LOCAL UNIT |
+| RUNNING 中断 / provider 异常 | QUARANTINED，不重跑 | crash hook / LOCAL UNIT |
+| PREPARED 已保存 | 重用 reply，不重跑 provider | LOCAL PROCESS 新 Node |
+| SENDING 中断（包括调用前） | QUARANTINED，不盲目重发 | crash hook / LOCAL UNIT |
+| send 后未记录 | QUARANTINED，可能已经送达 | crash hook / LOCAL UNIT |
+| SENT 已保存 | IDLE，不重发 | LOCAL PROCESS 新 Node |
+| provider/sender 超时 | signal abort，隔离；迟到效果仍可能发生 | LOCAL UNIT，忽略 abort fixture |
+| checkpoint 总容量超限 | 原子拒绝 reply/Markdown/revision 更新，隔离、不发送 | LOCAL UNIT |
+| 快照损坏、scope 不匹配、非法 revision | load 拒绝 | LOCAL UNIT |
 
-## Checkpoint and delivery rules
+超时只结束等待。AbortSignal 是协作请求，不能证明未运行或未送达；Promise race 不杀死底层代码。provider 异常同样可能发生在工具效果之后，因此原 demo 的“失败自动重试”已改为隔离断言，故障仍被覆盖。存储失败或失租也不能重新声明外部调用没发生：记录可能仍为 RUNNING/SENDING，下次 worker 隔离。
 
-After inference, reply text and returned Markdown memory are committed in the same transaction before PREPARED. Recovery at PREPARED reuses that checkpoint without invoking the provider again. A worker marks SENDING before making the external call. Interrupted SENDING is quarantined on re-entry, even if the crash occurred before the actual send; this intentionally prefers a visible unresolved record over accidental duplicate delivery.
+fencing 保护存储；远端 sender 不理解本地 epoch，本核心不承诺 exactly-once 外部送达。发送前的当前授权只能阻止尚未开始的发送。
 
-Interrupted RUNNING is also quarantined. The provider could have made tool effects or incurred charges before its result vanished. The smaller `demo.mjs` example retries its synthetic side-effect-free provider; that is not the generic production-safe policy.
+## 检查点与容量
 
-SENT, FAILED and CANCELLED are terminal. A quarantined turn blocks later turns in the session to avoid silently skipping uncertain context. Operator reconciliation and creating a separately authorized new turn are required; no automatic force-resend or quarantine-clear API is provided.
+PREPARED 事务将 reply 与当前 scope 的 Markdown 共享递增 revision。恢复此状态时无需 provider；恢复 SENT 不重复 sender。后续 revision 会更新 session memory，历史 turn 保留其 reply/revision，不保存每个历史 Markdown 副本。CANCELLED 若发生在 PREPARED 后不会回滚已提交记忆。
 
-This code does not claim exactly-once remote effects. Epoch fencing protects storage writes; a remote Telegram endpoint does not understand those epochs and cannot cancel a stale in-flight send.
+每 session 最多 100 turns。所有 ledger mutation 的序列化 JSON UTF-8 硬上限为 850000 bytes；admission 和 PREPARED 使用 848976 bytes，余下 1024 bytes 留给 lease/status/reason 管理。owner 最多 64 code units，reason 最多 120；回复和 Markdown 另有单项限额。检查使用应用 JSON 字节，不能据此宣称真实数据库编码配额已验收。
 
-## Scope, capacity and ordering
+测试分别构造 Unicode admission 增长、reply 增长、Markdown 增长；超限不覆盖之前 memory/revision，不发信。重复已存在 turn 仍能去重，容量不自动删除终态记录。恢复/import 的状态是可信管理输入，文件 load 校验其容量和检查点字段；不是不可信任意状态导入服务。本批不增加归档模块。
 
-A session key isolates tenant/chat/topic. Admission order is the transaction's append order, not Telegram update chronology. The example caps a session at 100 admitted turns and checks an admission byte limit; it deliberately refuses new work rather than deleting deduplication tombstones. Production must partition records and design archival/tombstone retention while respecting Firestore's document limits. Runtime response/checkpoint growth and SDK encoding overhead still need real database tests.
+## 本地文件快照
 
-The ledger stores runtime personal data. Do not dump it into public logs, examples or repositories. Limit provider access and supply each call only its scope's memory.
+FileSnapshots 保存 `{schemaVersion, sessionKey, state}` 的 payload 和 SHA-256 envelope，文件上限 1 MiB（包括 envelope 的 JSON 转义）。流程是临时文件独占创建、写入、file fsync、关闭、rename、directory fsync。失败拒绝成功回执；rename 后目录 sync 失败可能目标已更新，不能据异常推导“没有写过”。临时写失败会清理本次临时文件。
 
-## Native filesystem checkpoint
+恢复先检查大小、摘要、schema、scope、revision、状态及单项容量，再清理旧 lease。此清理只适用于确认旧 writer 已停止的本地恢复；不能在活跃系统里用 load 抢 lease。目录必须由可信操作方控制，不构成敌对 symlink 沙箱。SHA-256 检测损坏，不认证有权限重算摘要的写者。
 
-`src/snapshot.mjs` implements `FileSnapshots`: Node's own filesystem API, restrictive file modes, temporary-file write + fsync + atomic rename + directory fsync, a SHA-256 envelope, schema/scope checks and a 1 MiB bound. It snapshots the ledger and Markdown memory together.
+当前 schemaVersion/version 仍为 1，新增 revision 为必需字段；不提供旧快照自动迁移。上线前须明确兼容策略。save 是显式工具，不是自动持久事务，不保证易失 demo 的实时备份。
 
-This is a **single trusted writer, local filesystem** checkpoint. It is not a distributed store, automatic per-transition persistence, Hermes's native database format, or proof of Cloud Run persistence. The operator must stop the source worker before restoring; load clears the old lease and must never be used while another worker is active. SHA-256 detects corruption, not a malicious writer who can recompute the checksum. The directory must be trusted and inaccessible to untrusted tenants; this adapter is not a hostile-symlink sandbox.
-
-One test writes a real snapshot, starts a separate Node process to load it, restores a fresh ledger, and verifies memory plus terminal dedup survive. Other tests corrupt the payload and reject invalid scope keys. Live SQLite backup and Hermes Markdown synchronization remain separate future integrations.
-
-## Deterministic verification
-
-`test/recovery.test.mjs` injects crashes after RUNNING, after provider result, after checkpoint, before send, after send but before recording, and after terminal recording. These are deterministic exceptions, not OS process kills; their cleanup releases the test lease, while actual death requires waiting for lease expiry. Tests also cover concurrent acquisition, epoch supersession, revocation before inference/delivery, timeouts, unknown sends and terminal replay.
-
-No queue, Telegram, Google Cloud or real model is contacted. The fresh-process filesystem restoration test is real local persistence; it must not be described as cloud restart verification.
+`node --test test/recovery.test.mjs` 会真正写文件并启动新的 Node 进程，在子进程中恢复 PREPARED/SENT、执行 worker、核对 memory 与 record revision 和调用次数。结果只有脱敏摘要。其他 crash 点是异常注入，不是 OS kill；未验收云重启、跨实例存储、Hermes SQLite 一致备份或真实外发。

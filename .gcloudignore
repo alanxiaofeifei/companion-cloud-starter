@@ -1,0 +1,8 @@
+# Source upload allowlist, independent of Docker context. No automatic deployment.
+*
+!Dockerfile
+!package.json
+!LICENSE
+!NOTICE
+!src/
+!src/*.mjs

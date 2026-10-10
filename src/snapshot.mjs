@@ -1,7 +1,7 @@
 import { open, readFile, rename, mkdir, unlink, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { validKey } from './state.mjs';
+import { validKey, checkCapacity } from './state.mjs';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const MAX = 1024 * 1024;
 /** Native Node filesystem checkpoint, single trusted writer only. The directory
@@ -28,13 +28,13 @@ export class FileSnapshots {
     const target = join(this.directory, sessionKey + '.json'), temp = target + '.' + randomUUID() + '.tmp';
     const file = await open(temp, 'wx', 0o600);
     try {
-      await file.writeFile(bytes);
-      await file.sync();
-    }
-    finally {
-      await file.close();
-    }
-    try {
+      try {
+        await file.writeFile(bytes);
+        await file.sync();
+      }
+      finally {
+        await file.close();
+      }
       await rename(temp, target);
       const dir = await open(this.directory, 'r');
       try {
@@ -68,6 +68,9 @@ export class FileSnapshots {
     if (data.schemaVersion !== 1 || data.sessionKey !== sessionKey || data.state?.version !== 1 || typeof data.state.memoryMarkdown !== 'string' || !Array.isArray(data.state.order) || typeof data.state.turns !== 'object' || data.state.turns === null)
       throw Error('Invalid snapshot schema');
     const state = data.state;
+    checkCapacity(state);
+    if (!Number.isSafeInteger(state.revision) || state.revision < 0 || Object.keys(state.turns).length !== state.order.length)
+      throw Error('Invalid snapshot revision');
     if (!Number.isSafeInteger(state.epoch) || state.epoch < 0 || state.order.length > 100 || new Set(state.order).size !== state.order.length || Buffer.byteLength(state.memoryMarkdown) > 65536)
       throw Error('Invalid snapshot state');
     for (const id of state.order) {
@@ -75,6 +78,12 @@ export class FileSnapshots {
       const record = state.turns[id];
       if (!record || record.turn?.turnId !== id || record.turn?.sessionKey !== sessionKey || !['PENDING', 'RUNNING', 'PREPARED', 'SENDING', 'SENT', 'FAILED', 'CANCELLED', 'QUARANTINED'].includes(record.status))
         throw Error('Invalid snapshot record');
+      if (typeof record.turn.text !== 'string' || record.turn.text.length > 4096)
+        throw Error('Invalid snapshot turn');
+      if (['PREPARED', 'SENDING', 'SENT', 'FAILED'].includes(record.status) || record.reply !== undefined) {
+        if (typeof record.reply !== 'string' || record.reply.length > 4096 || !Number.isSafeInteger(record.revision) || record.revision < 1 || record.revision > state.revision)
+          throw Error('Invalid snapshot checkpoint');
+      }
     }
     // Local restart must not revive a lease held by a terminated process.
     data.state.lease = null;

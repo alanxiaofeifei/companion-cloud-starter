@@ -4,6 +4,13 @@ export const validKey = value => {
     throw Error('Invalid state key');
   return value;
 };
+export const MAX_SESSION_BYTES = 850000;
+const CONTENT_BYTES = MAX_SESSION_BYTES - 1024;
+export class CapacityExceeded extends Error {}
+export function checkCapacity(state, limit = MAX_SESSION_BYTES) {
+  if (Buffer.byteLength(JSON.stringify(state)) > limit)
+    throw new CapacityExceeded('Session byte capacity reached');
+}
 export class LostLease extends Error {
 }
 /** Port: transact(key, pureCallback) atomically reads/updates ONE session record.
@@ -70,7 +77,7 @@ export class SessionLedger {
     validKey(turn.turnId);
     return this.store.transact(turn.sessionKey, state => {
       state ??= {
-        version: 1, epoch: 0, lease: null, memoryMarkdown: '', turns: {}, order: []
+        version: 1, revision: 0, epoch: 0, lease: null, memoryMarkdown: '', turns: {}, order: []
       };
       const old = state.turns[turn.turnId];
       if (old) {
@@ -81,22 +88,21 @@ export class SessionLedger {
         };
       }
       if (state.order.length >= 100)
-        throw Error('Session capacity reached; archival policy required');
+        throw new CapacityExceeded('Session turn capacity reached');
       if (typeof turn.text !== 'string' || turn.text.length > 4096 || !turn.principal || typeof turn.principal !== 'object')
         throw Error('Invalid admitted turn');
       state.turns[turn.turnId] = {
         turn: structuredClone(turn), status: 'PENDING'
       };
       state.order.push(turn.turnId);
-      if (Buffer.byteLength(JSON.stringify(state)) > 850000)
-        throw Error('Session byte capacity reached');
+      checkCapacity(state, CONTENT_BYTES);
       return {
         state, result: true
       };
     });
   }
   async acquire(sessionKey, owner, ttlMs = 30000) {
-    if (typeof owner !== 'string' || !owner || !Number.isSafeInteger(ttlMs) || ttlMs < 1 || ttlMs > 300000)
+    if (typeof owner !== 'string' || !owner || owner.length > 64 || !Number.isSafeInteger(ttlMs) || ttlMs < 1 || ttlMs > 300000)
       throw Error('Invalid lease');
     return this.store.transact(sessionKey, state => {
       const now = this.now();
@@ -110,6 +116,7 @@ export class SessionLedger {
       state.lease = {
         owner, epoch: state.epoch, expiresAt: now + ttlMs
       };
+      checkCapacity(state);
       return {
         state, result: {
           sessionKey, ...state.lease
@@ -122,9 +129,9 @@ export class SessionLedger {
       const now = this.now();
       if (!state || state.lease?.owner !== lease.owner || state.lease?.epoch !== lease.epoch || state.lease.expiresAt <= now)
         throw new LostLease('Lease expired or superseded');
-      return {
-        state, result: fn(state)
-      };
+      const result = fn(state);
+      checkCapacity(state);
+      return { state, result };
     });
   }
   async renew(lease, ttlMs = 30000) {
@@ -172,10 +179,14 @@ export class SessionLedger {
           throw Error('Invalid checkpoint');
         state.memoryMarkdown = patch.memoryMarkdown;
         r.reply = patch.reply;
+        state.revision++;
+        r.revision = state.revision;
       }
       if (typeof patch.reason === 'string')
         r.reason = patch.reason.slice(0, 120);
       r.status = to;
+      if (to === 'PREPARED')
+        checkCapacity(state, CONTENT_BYTES);
       return r;
     });
   }

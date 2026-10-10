@@ -13,3 +13,6 @@ runtime/
 private/
 backups/
 .DS_Store
+
+# Local test artifacts are never publication inputs.
+.scratch/
