@@ -1,16 +1,62 @@
 # Companion Cloud Starter
 
-一个标准库实现的实验性参考核心：可信接入、scope 隔离、fenced 会话 ledger、回复与 Markdown 检查点、幂等终态和未知结果隔离。可离线运行合成 HTTP 示例；不是已接通的云端助手。
+[中文版](README.md) | [English](README.en.md)
 
-| 模式 | 实际行为 |
+一个面向聊天型 AI 助手的轻量基础模板，从聊天机器人云端实践中提炼而来。
+
+- **你想做什么：** 做一个 7×24 小时可接消息的 AI 聊天助手。有消息时按需启动处理，空闲时让运行实例缩到零，尽量少占资源。
+- **这个项目帮什么：** 提供接收消息、区分不同会话、记录处理进度、准备回复和处理异常的基础代码，以及能在本机跑通的模拟示例。
+- **还要补什么：** 接上真正的 AI、Telegram 和云端存储、任务队列，再完成部署与验证。目前还不能填入账号就直接聊天。
+
+“随时可接收、按需工作、空闲休眠”是最终用途和部署方向。**公开仓库当前是实验性基础模板和离线演示，整套云端聊天服务还没有接通。**
+
+## 用大白话看，它在做什么？
+
+可以把它理解成聊天助手背后的消息处理底座。AI 负责想回复内容，这个底座负责弄清楚：消息是谁发的、属于哪段聊天、处理到哪一步、是否已经发过。
+
+基本流程是：
+
+```text
+接到消息 → 检查是否允许 → 记下处理进度 → 准备回复 → 发送回复
+                                              遇到结果不确定的异常 → 暂停，等待核实
+```
+
+例如，你发来一句“Hello”：
+
+1. 入口检查请求和发送者是否符合配置。
+2. 把消息放进对应会话，记下处理进度，识别重复消息。
+3. 生成回复，把回复和这段会话的 Markdown 记忆文本一起提交。
+4. 发送前再检查权限，发送后记录结果。
+5. 如果超时或中断，无法确定刚才有没有执行或发出，就暂停这段会话，等待核实，避免盲目重做。
+
+目前演示里的“AI”只会生成 `Synthetic reply: Hello`，发送也只写入本机内存中的列表。它让你看懂和测试流程，不会联系真实 AI 或 Telegram。
+
+## “全天可接收”和“空闲休眠”怎么同时做到？
+
+目标方案是让聊天平台在有消息时调用云端入口，再按需启动处理程序。空闲时，云平台可以把运行实例减到零，也就是 **scale-to-zero（没有请求时不保留运行实例）**。Cloud Run 支持这种部署方式，具体见[官方自动伸缩说明](https://docs.cloud.google.com/run/docs/about-instance-autoscaling)。
+
+这样可以减少空闲时的计算资源占用。重新启动实例需要时间，称为冷启动，因此全天可接收不等于每次都即时回复。实际何时缩容由平台决定；实例缩到零，也不代表 AI、存储、队列等整套系统的费用为零。
+
+这些是后续部署的设计目标。仓库中的 Cloud Run 配置还是示意占位，尚未验证真实的全天接收、自动唤醒或云端恢复，也没有高可用或响应时限承诺。
+
+## 现在能用到哪一步？
+
+- **可以直接运行：** 不依赖外部服务的本地模拟流程、自动测试、单写者文件快照工具。
+- **可以学习和改造：** 消息接入、会话隔离、重复消息处理、回复与记忆一起提交、恢复和异常隔离。
+- **还需要开发：** 真实 AI 与 Telegram 收发、云端持久存储、可靠任务唤醒、身份与权限配置，以及部署后的完整验证。
+
+两种启动方式用途不同：
+
+| 命令 | 实际行为 |
 | --- | --- |
-| 默认 smoke | `npm start`；健康检查 200，所有业务请求 503 |
-| synthetic loopback | `npm run demo`；可信 ingress → 内存 inbox/queue → SessionLedger/processSession → 合成 provider → 本地数组 |
-| 真实集成 | 未实现/未验收：真实模型、Telegram、IAM、queue、OAuth、Secret Manager、云持久化、Hermes |
+| `npm start` | 启动检查服务：健康检查返回 200，所有业务请求返回 503。用于确认程序能启动。 |
+| `npm run demo` | 启动本机模拟：接入检查 → 内存消息箱/队列 → 会话处理 → 模拟回复 → 本地列表。 |
+
+它适合想了解“轻量聊天助手怎样按需运行、怎样处理故障”的开发者。想立即得到可用聊天机器人的读者，还需要完成上面的真实服务接入。
 
 ## 五分钟离线运行
 
-需要 Node 22 或更新版本，不安装依赖、不需要真实 token。本地验证使用 Node 24.19.0；代码提交 `67d18a2b0b577970a1cc9d07ea404157f66e01d0` 已通过 [Node 22/24 的 CI 验证](https://github.com/alanxiaofeifei/companion-cloud-starter/actions/runs/38040415468)。
+需要 Node 22 或更新版本。在仓库目录执行，不用 `npm install`，也不需要真实 token（账号访问密钥）。代码只使用 Node 标准库。
 
 ```sh
 npm test
@@ -18,7 +64,9 @@ npm run check
 npm run demo
 ```
 
-在另一终端只访问本机：
+`npm test` 运行测试；`npm run check` 运行全部测试并检查 `src/`、`test/` 中的 JavaScript 语法；`npm run demo` 启动模拟服务。
+
+在另一终端发送下面这条虚构消息，请求只会访问本机：
 
 ```sh
 curl -s http://127.0.0.1:8081/telegram/webhook \
@@ -27,9 +75,20 @@ curl -s http://127.0.0.1:8081/telegram/webhook \
   -d '{"update_id":1,"message":{"message_id":1,"chat":{"id":101,"type":"private"},"from":{"id":101,"is_bot":false},"text":"Hello"}}'
 ```
 
-响应含 `accepted:true`、`duplicate:false` 和 `responses`，其中合成回复为 `Synthetic reply: Hello`。重复相同请求得到 `duplicate:true`；数组仍只有一条送达。同 ID 改正文返回 409。`responses` 是进程内累计的合成数组，不是 Telegram 送达凭证；`accepted` 只表示 admission/enqueue 成功。撤权或隔离可能已接收但没有回复。
+响应中会有 `accepted:true`、`duplicate:false` 和 `responses`，模拟回复是 `Synthetic reply: Hello`。
 
-demo 仅监听 `127.0.0.1`，无模型或工具调用，sender 只写数组。它使用恢复测试中的同一套 worker，不另设简化重试语义。状态在退出时丢失；文件快照是显式调用的独立单写者工具，不自动为 demo 持久化。
+- 再发一次相同请求，会得到 `duplicate:true`，本地列表仍只有一条回复。
+- 保留相同 ID 但修改正文，会返回 409，表示内容冲突。
+- `accepted:true` 只表示消息已通过接入并入队，不是送达凭证。权限被撤回或消息被隔离时，可能已接收但没有回复。
+- `responses` 是进程内累计的模拟回复列表，不是 Telegram 的真实送达记录。
+
+demo 只监听 `127.0.0.1`，不会调用模型或工具，退出后状态会丢失。文件快照需要单独、明确地调用，**不会自动替 demo 保存数据**。demo 与恢复测试使用同一套消息处理代码。
+
+## 已经验证了什么？
+
+本地验证使用 Node 24.19.0。已发布提交 `7aa6798a7e8754cd8edf70552e341783eed6b4a6` 的 [GitHub Actions 检查](https://github.com/alanxiaofeifei/companion-cloud-starter/actions/runs/38040623502)中，Node 22 和 Node 24 都通过了 55 项测试及 15 个文件的语法检查。这些结果证明该固定提交的离线检查通过，不代表真实云端集成已完成。
+
+也可以单独运行：
 
 ```sh
 node --test test/http.test.mjs
@@ -37,18 +96,50 @@ node --test test/recovery.test.mjs
 node --test test/privacy.test.mjs test/release.test.mjs
 ```
 
-恢复测试展示 PREPARED 新 Node 进程恢复不重跑 provider、SENT 新进程恢复不重发、RUNNING/SENDING 中断与忽略 abort 的超时隔离，以及容量、scope、快照损坏。异常 crash hook 与新进程恢复分别报告，不冒充 OS kill 或云重启。
+恢复测试会真正保存文件，再启动新的 Node 进程，验证：
 
-## 实际契约与边界
+- 已保存的 `PREPARED`（回复已备妥）可以继续发送，不重新调用回复生成程序。
+- 已保存的 `SENT`（发送结果已记录）不会再次发送。
+- 处理中或发送中断、超时后仍继续运行的调用，以及容量超限、会话不匹配和快照损坏，会按相应规则拒绝或隔离。
 
-`runTurn(turn, {signal, deadlineMs, memoryMarkdown})` 返回 `{text, memoryMarkdown}`。provider 提议回复和记忆；ledger 在同一 revision 原子提交后进入 PREPARED。provider 的 `durable:true` 没有任何证明力。`MemoryState` 只保证进程内原子性；耐久承诺必须来自真实持久事务适配器的提交。
+文件恢复要求先停止旧的写入进程。其他故障点通过抛出异常来模拟；没有做操作系统强制杀进程、断电或真实云重启测试。真实模型、Telegram、云 SDK、IAM（云端身份权限）和完整用户聊天流程仍未验收。
 
-HTTP 在 body 读取前校验方法/路径/secret，流式上限 64 KiB，处理坏 JSON、超限、中止和 body deadline。ledger 最多保留 100 turns；JSON UTF-8 硬上限 850000 bytes，admission/检查点预算 848976 bytes，预留状态管理空间。拒绝增长，不删除去重记录，也没有归档系统。
+## 开发者需要知道的边界
 
-Firestore/GCS 是注入式端口，现有测试只使用 SDK fake，未安装真实 SDK。GCS create 只返回摘要，尚不能建立可信恢复 pointer。`HermesRuntime` 始终明确抛出未实现错误；没有分发其代码、schema、fixture 或指导文本。
+### 接入、权限与会话
 
-阅读 [架构](docs/ARCHITECTURE.md)、[恢复](docs/RECOVERY.md)、[运维](docs/RUNBOOK.md)、[工程取舍](docs/LESSONS.md) 和 [详细中文工程笔记](docs/ENGINEERING_NOTES.zh-CN.md)。一般云角色、六项已核对官方行为及剩余待核验项见运维文档；真实云/SDK/IAM 运行验收仍为 NOT RUN。
+HTTP 入口在读取正文前检查方法、路径和 webhook secret（请求携带的通道校验值）。secret 校验只说明请求持有该值，不能单独证明请求一定来自 Telegram 官方，也不能授予聊天成员权限。
+
+通过入口检查后，正文按流读取，设置 64 KiB 上限，并处理坏 JSON、超限、中止和读取超时。超限时可能已经读到部分正文，但不会继续按正常消息解析。
+
+私聊、群聊和群内话题按配置区分会话；执行前和发送前会再次核对当前权限。scope（会话的数据范围）隔离不等于工具的文件或网络沙箱。
+
+### 回复、记忆与恢复
+
+`runTurn(turn, {signal, deadlineMs, memoryMarkdown})` 返回 `{text, memoryMarkdown}`。provider（回复生成程序）提出回复与记忆内容，ledger（处理进度记录）将二者在同一 revision（版本）中原子提交，再进入 `PREPARED`。
+
+`MemoryState` 只保证进程内的一起提交，进程退出后不会保留。provider 自报的 `durable:true` 也不能证明已经存好。耐久保存必须依靠真实持久事务适配器，或明确完成的文件快照。
+
+只有确认保存的进度才能用于相应恢复：`PREPARED` 重用回复，`SENT` 不重发。若执行或送达结果不确定，会进入 `QUARANTINED`（暂停并等待核实），阻挡同会话后续处理；当前没有自动解除隔离的功能。这不是“绝对不丢、不重”的保证。
+
+记忆目前只是按会话传递、提交和恢复的 Markdown 文本；没有自动识别长期偏好、纠正旧记忆等完整产品功能。
+
+### 容量与尚未接通的服务
+
+- ledger 每个会话最多保留 100 turns（消息处理记录）。JSON UTF-8 硬上限是 850000 bytes，接收新消息和保存回复检查点的预算是 848976 bytes，其余留给状态管理。超限会拒绝增长，不自动删除去重记录，也没有归档系统。
+- Firestore/GCS 只有可注入的接口，测试使用 SDK fake（模拟的 SDK），没有安装真实 SDK。GCS 创建对象目前只返回摘要，还不能建立可信的恢复 pointer（指定该用哪份已提交备份的记录）。
+- 真实 AI、Telegram、IAM、队列、OAuth、Secret Manager 和云持久化尚未接通或验收。`HermesRuntime` 仍会明确抛出“未实现”错误；仓库没有分发 Hermes 的代码、schema、fixture 或指导文本。
+
+## 继续阅读
+
+- [架构](docs/ARCHITECTURE.md)：各部分如何连接，权限在哪里检查
+- [恢复](docs/RECOVERY.md)：处理进度、故障和文件快照
+- [运维](docs/RUNBOOK.md)：本地验证、云端职责、已核对的官方行为与待验收项
+- [工程取舍](docs/LESSONS.md)：为什么做这些选择
+- [详细中文工程笔记](docs/ENGINEERING_NOTES.zh-CN.md)：问题、方案和测试依据
 
 ## 来源与许可
 
-这是 [公开实验参考仓库](https://github.com/alanxiaofeifei/companion-cloud-starter) 的小型原创实现。公开例子全部合成，不包含私人历史、身份资料、真实云配置或运行记录。保留 [LICENSE](LICENSE) 与 [NOTICE](NOTICE) 的公开维护者合法归属，MIT 许可；没有新增上游材料或官方集成背书。
+这是[公开实验参考仓库](https://github.com/alanxiaofeifei/companion-cloud-starter)中的小型原创实现。公开示例全部虚构，不包含私人聊天历史、身份资料、真实云配置或运行记录。
+
+采用 MIT 许可，保留 [LICENSE](LICENSE) 与 [NOTICE](NOTICE) 中的公开维护者合法归属。没有新增上游材料，也不表示获得相关平台或项目的官方集成背书。
