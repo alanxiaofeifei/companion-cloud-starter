@@ -2,13 +2,19 @@
 
 [中文版](README.md) | [English](README.en.md)
 
-A lightweight starter for chat-focused AI assistants, distilled from work on cloud-hosted chatbots.
+Want an AI chat assistant that can receive messages anytime, without buying a dedicated Mac mini or keeping your personal laptop on around the clock? This project explores an on-demand cloud path, with a lightweight starter distilled from work on cloud-hosted chatbots.
 
 - **What you want to build:** An AI chat assistant that can receive messages 24/7, start processing on demand, and scale its running instances to zero when idle to reduce resource use.
 - **What this project provides:** Basic code for receiving messages, keeping conversations separate, tracking progress, preparing replies, and handling failures, plus a simulated example you can run locally.
 - **What you still need to add:** Real AI, Telegram, cloud storage, and a task queue, followed by deployment and verification. Adding an account is not enough to start chatting yet.
 
-“Receive messages anytime, work on demand, rest when idle” describes the intended use and deployment direction. **The public repository currently contains an experimental starter and an offline demo. The full cloud chat service is not connected yet.**
+“Receive messages anytime, work on demand, rest when idle” describes the intended use and deployment direction. **The public repository currently contains an experimental reliability starter with no third-party dependencies and an offline demo. The full cloud chat service is not connected yet.**
+
+**Cost and latency:** Total cost depends on usage, free-tier allowances and conditions, model APIs, storage, and other services. There is no guarantee of lower costs than buying hardware or of zero cost. On-demand startup can also mean waiting for a cold start.
+
+**Privacy boundaries:** A dedicated cloud project and least-privilege access can help keep the bot separate from personal files and accounts when deployed. Cloud hosting is not inherently safer than running locally; provider data flows, data-handling terms, and enterprise compliance requirements still need review.
+
+**Roadmap:** A reusable Cloud Run deployment approach, aiming for a single command, and a step-by-step guide are planned. They are not available yet, and the repository does not yet provide a complete AI bot ready to deploy and use.
 
 ## What does it do, in plain language?
 
