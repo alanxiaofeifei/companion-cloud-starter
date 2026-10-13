@@ -138,6 +138,8 @@ Memory currently means passing, committing, and restoring Markdown text within a
 - Firestore/GCS are injectable interfaces tested with SDK fakes (simulated SDKs). No real SDK is installed. GCS object creation currently returns only a digest, so it cannot yet establish a trusted recovery pointer (a record selecting a committed backup).
 - Real AI, Telegram, IAM, queues, OAuth, Secret Manager, and cloud persistence are not connected or verified. `HermesRuntime` still explicitly throws a “not implemented” error. The repository does not distribute Hermes code, schemas, fixtures, or instruction text.
 
+An optional [C capability reference](docs/C_CAPABILITIES.en.md) adds dependency-free current-message image, explicit public-search, and server-rendered citation primitives with an integration checklist. They are not wired into the demo or worker. Real image decoding, provider and Telegram web routing still need adapters and separate verification; this does not establish live browsing or conversational reliability.
+
 ## Read more
 
 The detailed documents below are currently in Chinese.

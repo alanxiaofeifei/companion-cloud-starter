@@ -138,6 +138,8 @@ HTTP 入口在读取正文前检查方法、路径和 webhook secret（请求携
 - Firestore/GCS 只有可注入的接口，测试使用 SDK fake（模拟的 SDK），没有安装真实 SDK。GCS 创建对象目前只返回摘要，还不能建立可信的恢复 pointer（指定该用哪份已提交备份的记录）。
 - 真实 AI、Telegram、IAM、队列、OAuth、Secret Manager 和云持久化尚未接通或验收。`HermesRuntime` 仍会明确抛出“未实现”错误；仓库没有分发 Hermes 的代码、schema、fixture 或指导文本。
 
+新增可选的 [C 能力参考](docs/C_CAPABILITIES.zh-CN.md)：当前消息图片、显式公开搜索和服务端引用的零依赖模块与接入清单。它们尚未接入 demo/worker；真实图片解码器、provider 和 Telegram 联网路由仍需适配与单独验证，不能据此保证真实联网或对话体验。
+
 ## 继续阅读
 
 - [架构](docs/ARCHITECTURE.md)：各部分如何连接，权限在哪里检查
